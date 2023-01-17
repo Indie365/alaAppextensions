@@ -216,7 +216,7 @@ jobs:
                 }
               }
               else {
-                $include = ($ENV:GITHUB_REF_NAME -eq 'main')
+                $include = $true
               }
             }
             if ($include) {
