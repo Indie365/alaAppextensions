@@ -32,7 +32,10 @@ function GenerateManifest
 
 New-Item -Path $OutputPackageFolder -ItemType Directory | Out-Null
 
-$appsFolders = Get-ChildItem $BuildArtifactsPath -Directory 
+#Temp fix
+#$appsFolders = Get-ChildItem $BuildArtifactsPath -Directory 
+$appsFolders = Get-ChildItem $BuildArtifactsPath -Directory | where-object {$_.FullName.Contains("Apps-")} | Select-Object -ExpandProperty FullName
+
 $packageVersion = ($appsFolders -replace ".*-Apps-","" | Select-Object -First 1).ToString() 
 
 Write-Host "App folder(s): $($appsFolders -join ', ')" -ForegroundColor Magenta

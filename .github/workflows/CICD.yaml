@@ -27,6 +27,8 @@ defaults:
 
 env:
   workflowDepth: 1
+  buildArtifactsPath: ${{ github.workspace }}/.artifacts
+  packageOutputPath: ${{ github.workspace }}/out
 
 jobs:
   Initialization:
@@ -518,7 +520,6 @@ jobs:
 
       - name: Publish artifacts - apps
         uses: actions/upload-artifact@v3
-        if: github.ref_name == 'main' || startswith(github.ref_name, 'release/') || needs.Initialization.outputs.deliveryTargetCount > 0 || needs.Initialization.outputs.environmentCount > 0
         with:
           name: ${{ env.AppsArtifactsName }}
           path: '${{ matrix.project }}/.buildartifacts/Apps/'
@@ -526,7 +527,6 @@ jobs:
 
       - name: Publish artifacts - dependencies
         uses: actions/upload-artifact@v3
-        if: github.ref_name == 'main' || startswith(github.ref_name, 'release/') || needs.Initialization.outputs.deliveryTargetCount > 0 || needs.Initialization.outputs.environmentCount > 0
         with:
           name: ${{ env.DependenciesArtifactsName }}
           path: '${{ matrix.project }}/.buildartifacts/Dependencies/'
@@ -534,7 +534,6 @@ jobs:
 
       - name: Publish artifacts - test apps
         uses: actions/upload-artifact@v3
-        if: github.ref_name == 'main' || startswith(github.ref_name, 'release/') || needs.Initialization.outputs.deliveryTargetCount > 0 || needs.Initialization.outputs.environmentCount > 0
         with:
           name: ${{ env.TestAppsArtifactsName }}
           path: '${{ matrix.project }}/.buildartifacts/TestApps/'
@@ -737,7 +736,6 @@ jobs:
 
   Deliver:
     needs: [ Initialization, Build ]
-    if: always() && needs.Build.result == 'Success' && github.event_name != 'workflow_run' && needs.Initialization.outputs.deliveryTargetCount > 0
     strategy:
       matrix:
         deliveryTarget: ${{ fromJson(needs.Initialization.outputs.deliveryTargets) }}
@@ -776,6 +774,16 @@ jobs:
           $deliveryContext = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String([System.Environment]::GetEnvironmentVariable($contextName)))
           Add-Content -Path $env:GITHUB_OUTPUT -Value "deliveryContext=$deliveryContext"
           Write-Host "deliveryContext=$deliveryContext"
+      
+      - name: Setup NuGet.exe
+        uses: nuget/setup-nuget@v1
+        with:
+          nuget-api-key: ${{ secrets.BCFEEDCONTEXT.Token }}
+
+      - name: Prepare Package
+        run: |
+          $RepoName = $env:GITHUB_REPOSITORY -replace "/", "-"
+          .github\PackNuget.ps1 -BuildArtifactsPath $env:buildArtifactsPath -OutputPackageFolder $env:packageOutputPath -RepoName $RepoName -$RepoOwner $env:GITHUB_REPOSITORY_OWNER -RepoRoot $env:GITHUB_WORKSPACE
 
       - name: Deliver
         uses: microsoft/AL-Go-Actions/Deliver@preview
