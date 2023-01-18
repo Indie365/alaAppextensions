@@ -782,8 +782,8 @@ jobs:
 
       - name: Prepare Package
         run: |
-          $RepoName = $env:GITHUB_REPOSITORY -replace "/", "-"
-          .github\PackNuget.ps1 -BuildArtifactsPath $env:buildArtifactsPath -OutputPackageFolder $env:packageOutputPath -RepoName $RepoName -$RepoOwner $env:GITHUB_REPOSITORY_OWNER -RepoRoot $env:GITHUB_WORKSPACE
+          $RepoName = $ENV:GITHUB_REPOSITORY -replace "/", "-"
+          .github\PackNuget.ps1 -BuildArtifactsPath $env:buildArtifactsPath -OutputPackageFolder $env:packageOutputPath -RepoName $RepoName -RepoOwner $env:GITHUB_REPOSITORY_OWNER -RepoRoot $env:GITHUB_WORKSPACE
 
       - name: Deliver
         uses: microsoft/AL-Go-Actions/Deliver@preview
