@@ -3,8 +3,11 @@ Param(
     [string] $BuildArtifactsPath,
     [Parameter(Mandatory=$true)]
     [string] $OutputPackageFolder,
+    [Parameter(Mandatory=$true)]
     [string] $RepoName,
+    [Parameter(Mandatory=$true)]
     [string] $RepoOwner,
+    [Parameter(Mandatory=$true)]
     [string] $RepoRoot
 )
 
