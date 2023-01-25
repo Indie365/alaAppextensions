@@ -4,7 +4,7 @@ on:
   push:
     branches: [ 'main', 'release/*', 'feature/*' ]
 
-run-name: 'CI/CD Workflow' #TODO: Update this to be more descriptive
+run-name: 'Official Build: ${{github.event.head_commit.message}}'
 
 defaults:
   run:
@@ -197,6 +197,7 @@ jobs:
 
   Build:
     needs: [ Initialization ]
+    if: ${{ needs.Initialization.outputs.projectCount > 0 }}
     runs-on: ${{ fromJson(needs.Initialization.outputs.githubRunner) }}
     defaults:
       run:
