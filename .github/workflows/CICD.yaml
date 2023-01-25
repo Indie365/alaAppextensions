@@ -1,7 +1,6 @@
 name: 'Official Build'
 
 on:
-  workflow_dispatch:
   push:
     branches: [ 'main', 'release/*', 'feature/*' ]
 
@@ -16,7 +15,6 @@ env:
 
 jobs:
   Initialization:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: [ windows-latest ]
     outputs:
       telemetryScopeJson: ${{ steps.init.outputs.telemetryScopeJson }}
@@ -179,7 +177,6 @@ jobs:
   CheckForUpdates:
     runs-on: [ windows-latest ]
     needs: [ Initialization ]
-    if: github.event_name != 'workflow_run'
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -200,7 +197,6 @@ jobs:
 
   Build:
     needs: [ Initialization ]
-    if: ${{ needs.Initialization.outputs.projectCount > 0 }}
     runs-on: ${{ fromJson(needs.Initialization.outputs.githubRunner) }}
     defaults:
       run:
@@ -371,28 +367,6 @@ jobs:
           parentTelemetryScopeJson: ${{ needs.Initialization.outputs.telemetryScopeJson }}
           Project: ${{ matrix.project }}
 
-      - name: Update Build Job Check Run
-        if: always() && github.event_name == 'workflow_run'
-        uses: actions/github-script@v6
-        env:
-          TestResultMD: ${{ steps.analyzeTestResults.outputs.TestResultMD }}
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            var details_url = '${{ steps.CreateCheckRun.outputs.detailsUrl }}'
-            var testResultMD = process.env.TestResultMD
-            var response = await github.rest.checks.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              check_run_id: ${{ steps.CreateCheckRun.outputs.checkRunId }},
-              conclusion: '${{ steps.RunPipeline.conclusion }}',
-              output: {
-                title: context.job.concat(' ${{ matrix.project }}'),
-                summary: testResultMD.replaceAll('\\n','\n'),
-                text: '[Workflow details]('.concat(details_url,')')
-              }
-            });
-
       - name: Cleanup
         if: always()
         uses: microsoft/AL-Go-Actions/PipelineCleanup@v2.3
@@ -403,7 +377,7 @@ jobs:
 
   Deploy:
     needs: [ Initialization, Build ]
-    if: always() && needs.Build.result == 'Success' && github.event_name != 'workflow_run' && needs.Initialization.outputs.environmentCount > 0
+    if: always() && needs.Build.result == 'Success' && needs.Initialization.outputs.environmentCount > 0
     strategy: ${{ fromJson(needs.Initialization.outputs.environments) }}
     runs-on: ${{ fromJson(matrix.os) }}
     name: Deploy to ${{ matrix.environment }}
@@ -527,7 +501,7 @@ jobs:
 
   Deliver:
     needs: [ Initialization, Build ]
-    if: always() && needs.Build.result == 'Success' && github.event_name != 'workflow_run' && needs.Initialization.outputs.deliveryTargetCount > 0
+    if: always() && needs.Build.result == 'Success' && needs.Initialization.outputs.deliveryTargetCount > 0
     strategy:
       matrix:
         deliveryTarget: ${{ fromJson(needs.Initialization.outputs.deliveryTargets) }}
@@ -579,7 +553,6 @@ jobs:
           artifacts: '.artifacts'
 
   PostProcess:
-    if: (!cancelled()) && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: [ windows-latest ]
     needs: [ Initialization, Build, Deploy, Deliver ]
     steps:
