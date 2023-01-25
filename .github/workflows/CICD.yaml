@@ -1,25 +1,11 @@
-name: ' CI/CD'
+name: 'Official Build'
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Pull Request Handler"]
-    types:
-      - completed
   push:
-    paths-ignore:
-      - '**.md'
-      - '.github/workflows/*.yaml'
-      - '!.github/workflows/CICD.yaml'
     branches: [ 'main', 'release/*', 'feature/*' ]
 
-run-name: ${{ fromJson(format('["","Check pull request from {1}/{2}{0} {3}"]',':',github.event.workflow_run.head_repository.owner.login,github.event.workflow_run.head_branch,github.event.workflow_run.display_title))[github.event_name == 'workflow_run'] }}
-
-permissions:
-  contents: read
-  actions: read
-  pull-requests: write
-  checks: write
+run-name: 'CI/CD Workflow' #TODO: Update this to be more descriptive
 
 defaults:
   run:
@@ -49,100 +35,10 @@ jobs:
       buildOrderDepth: ${{ steps.ReadSettings.outputs.BuildOrderDepth }}
       buildModes: ${{ steps.ReadSettings.outputs.BuildModes }}
     steps:
-      - name: Create CI/CD Workflow Check Run
-        id: CreateCheckRun
-        if: github.event_name == 'workflow_run'
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            var details_url = context.serverUrl.concat('/',context.repo.owner,'/',context.repo.repo,'/actions/runs/',context.runId)
-            var response = await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'CI/CD Workflow',
-              head_sha: '${{ github.event.workflow_run.head_sha }}',
-              status: 'queued',
-              details_url: details_url,
-              output: {
-                title: 'CI/CD Workflow',
-                summary: '[Workflow Details]('.concat(details_url,')')
-              }
-            });
-            core.setOutput('checkRunId', response.data.id);
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
           lfs: true
-    
-      - name: Download Pull Request Changes
-        if: github.event_name == 'workflow_run'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            var run_id = Number('${{ github.event.workflow_run.id }}');
-            var artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               run_id: run_id
-            });
-            var matchArtifact = artifacts.data.artifacts.filter((artifact) => {
-              return artifact.name == 'Pull_Request_Files'
-            })[0];
-            var download = await github.rest.actions.downloadArtifact({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               artifact_id: matchArtifact.id,
-               archive_format: 'zip'
-            });
-            var fs = require('fs');
-            fs.writeFileSync('.PullRequestChanges.zip', Buffer.from(download.data));
-
-      - name: Apply Pull Request Changes
-        if: github.event_name == 'workflow_run'
-        env:
-          PRREPOFULLNAME: ${{ github.event.workflow_run.head_repository.full_name }}
-        run: |
-          $ErrorActionPreference = "STOP"
-          Set-StrictMode -version 2.0
-          $location = (Get-Location).path
-          $prfolder = '.PullRequestChanges'
-          Expand-Archive -Path (Join-Path "." "$prfolder.zip") -DestinationPath (Join-Path "." $prfolder)
-          Remove-Item -Path (Join-Path "." "$prfolder.zip") -force
-          Get-ChildItem -Path $prfolder -Recurse -File | ForEach-Object {
-            $path = $_.FullName
-            $deleteFile = $path.EndsWith('.REMOVE')
-            if ($deleteFile) {
-              $path = $path.SubString(0,$path.Length-7)
-            }
-            $newPath = $path.Replace("$prfolder$([System.IO.Path]::DirectorySeparatorChar)","")
-            $newFolder = [System.IO.Path]::GetDirectoryName($newPath)
-            $extension = [System.IO.Path]::GetExtension($path)
-            $filename = [System.IO.Path]::GetFileName($path)
-            if ($ENV:PRREPOFULLNAME -ne $ENV:GITHUB_REPOSITORY) {
-              if ($extension -eq '.ps1' -or $extension -eq '.yaml' -or $extension -eq '.yml' -or $filename -eq "CODEOWNERS") {
-                throw "Pull Request containing changes to scripts, workflows or CODEOWNERS are not allowed from forks."
-              }
-            }
-            if ($deleteFile) {
-              if (Test-Path $newPath) {
-                Write-Host "Removing $newPath"
-                Remove-Item $newPath -Force
-              }
-              else {
-                Write-Host "$newPath was already deleted"
-              }
-            }
-            else {
-              if (-not (Test-Path $newFolder)) {
-                New-Item $newFolder -ItemType Directory | Out-Null
-              }
-              Write-Host "Copying $path to $newFolder"
-              Copy-Item $path -Destination $newFolder -Force
-            }
-          }
-          Remove-Item -Path $prfolder -recurse -force
 
       - name: Initialize the workflow
         id: init
@@ -322,54 +218,6 @@ jobs:
       BcptTestResultsArtifactsName: ${{ steps.calculateArtifactNames.outputs.BcptTestResultsArtifactsName }}
       BuildOutputArtifactsName: ${{ steps.calculateArtifactNames.outputs.BuildOutputArtifactsName }}
     steps:
-      - name: Create Build Job Check Run
-        id: CreateCheckRun
-        if: github.event_name == 'workflow_run'
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            var jobName = context.job.concat(' ${{ matrix.project }}')
-            var jobs = await github.rest.actions.listJobsForWorkflowRun({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               run_id: context.runId
-            });
-            var job = jobs.data.jobs.filter((job) => {
-              return job.name == jobName
-            })[0];
-            var details_url = context.serverUrl.concat('/',context.repo.owner,'/',context.repo.repo,'/actions/runs/',context.runId)
-            if (job) {
-              details_url = job.html_url;
-            }
-            var response = await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: context.job.concat(' ${{ matrix.project }}'),
-              head_sha: '${{ github.event.workflow_run.head_sha }}',
-              status: 'in_progress',
-              details_url: details_url,
-              output: {
-                'title': context.job.concat(' ${{ matrix.project }}'),
-                'summary': '[Workflow Details]('.concat(details_url,')')
-              }
-            });
-            core.setOutput('checkRunId', response.data.id);
-            core.setOutput('detailsUrl', details_url);
-
-      - name: Update CI/CD Workflow Check Run
-        if: github.event_name == 'workflow_run'
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            var response = await github.rest.checks.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              check_run_id: ${{ needs.Initialization.outputs.checkRunId }},
-              status: 'in_progress'
-            });
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
@@ -380,74 +228,6 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           path: '.dependencies'
-
-      - name: Download Pull Request Changes
-        if: github.event_name == 'workflow_run'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            var run_id = Number('${{ github.event.workflow_run.id }}');
-            var artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               run_id: run_id
-            });
-            var matchArtifact = artifacts.data.artifacts.filter((artifact) => {
-              return artifact.name == 'Pull_Request_Files'
-            })[0];
-            var download = await github.rest.actions.downloadArtifact({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               artifact_id: matchArtifact.id,
-               archive_format: 'zip'
-            });
-            var fs = require('fs');
-            fs.writeFileSync('.PullRequestChanges.zip', Buffer.from(download.data));
-
-      - name: Apply Pull Request Changes
-        if: github.event_name == 'workflow_run'
-        env:
-          PRREPOFULLNAME: ${{ github.event.workflow_run.head_repository.full_name }}
-        run: |
-          $ErrorActionPreference = "STOP"
-          Set-StrictMode -version 2.0
-          $location = (Get-Location).path
-          $prfolder = '.PullRequestChanges'
-          Expand-Archive -Path (Join-Path "." "$prfolder.zip") -DestinationPath (Join-Path "." $prfolder)
-          Remove-Item -Path (Join-Path "." "$prfolder.zip") -force
-          Get-ChildItem -Path $prfolder -Recurse -File | ForEach-Object {
-            $path = $_.FullName
-            $deleteFile = $path.EndsWith('.REMOVE')
-            if ($deleteFile) {
-              $path = $path.SubString(0,$path.Length-7)
-            }
-            $newPath = $path.Replace("$prfolder$([System.IO.Path]::DirectorySeparatorChar)","")
-            $newFolder = [System.IO.Path]::GetDirectoryName($newPath)
-            $extension = [System.IO.Path]::GetExtension($path)
-            $filename = [System.IO.Path]::GetFileName($path)
-            if ($ENV:PRREPOFULLNAME -ne $ENV:GITHUB_REPOSITORY) {
-              if ($extension -eq '.ps1' -or $extension -eq '.yaml' -or $extension -eq '.yml' -or $filename -eq "CODEOWNERS") {
-                throw "Pull Request containing changes to scripts, workflows or CODEOWNERS are not allowed from forks."
-              }
-            }
-            if ($deleteFile) {
-              if (Test-Path $newPath) {
-                Write-Host "Removing $newPath"
-                Remove-Item $newPath -Force
-              }
-              else {
-                Write-Host "$newPath was already deleted"
-              }
-            }
-            else {
-              if (-not (Test-Path $newFolder)) {
-                New-Item $newFolder -ItemType Directory | Out-Null
-              }
-              Write-Host "Copying $path to $newFolder"
-              Copy-Item $path -Destination $newFolder -Force
-            }
-          }
-          Remove-Item -Path $prfolder -recurse -force
 
       - name: Read settings
         uses: microsoft/AL-Go-Actions/ReadSettings@v2.3
@@ -797,23 +577,6 @@ jobs:
           projects: ${{ needs.Initialization.outputs.projects }}
           deliveryTarget: ${{ matrix.deliveryTarget }}
           artifacts: '.artifacts'
-
-  UpdatePRcheck:
-    if: always() && github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
-    runs-on: [ windows-latest ]
-    needs: [ Initialization, Build ]
-    steps:
-      - name: Update CI/CD Workflow Check Run
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            var response = await github.rest.checks.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              check_run_id: ${{ needs.Initialization.outputs.checkRunId }},
-              conclusion: '${{ needs.Build.result }}'
-            });
 
   PostProcess:
     if: (!cancelled()) && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
