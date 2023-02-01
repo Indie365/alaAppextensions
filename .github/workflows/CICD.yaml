@@ -1,6 +1,7 @@
 name: 'Official Build'
 
 on:
+  workflow_dispatch:
   push:
     branches: [ 'main', 'release/*', 'feature/*' ]
 
@@ -40,7 +41,7 @@ jobs:
 
       - name: Initialize the workflow
         id: init
-        uses: microsoft/AL-Go-Actions/WorkflowInitialize@v2.3
+        uses: aholstrup1/AL-Go-Actions/WorkflowInitialize@main
         with:
           shell: powershell
           eventId: "DO0091"
@@ -68,111 +69,34 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "Secrets=$($deliveryTargetSecrets -join ',')"
 
       - name: Read secrets
-        uses: microsoft/AL-Go-Actions/ReadSecrets@v2.3
+        uses: aholstrup1/AL-Go-Actions/ReadSecrets@main
         env:
           secrets: ${{ toJson(secrets) }}
         with:
           shell: powershell
           settingsJson: ${{ env.Settings }}
           secrets: ${{ steps.DetermineDeliveryTargetSecrets.outputs.Secrets }}
-
+      
       - name: Determine Delivery Targets
-        id: DetermineDeliveryTargets
-        run: |
-          $ErrorActionPreference = "STOP"
-          Set-StrictMode -version 2.0
-          $deliveryTargets = @('GitHubPackages','NuGet','Storage')
-          if ($env:type -eq "AppSource App") {
-            $continuousDelivery = $false
-            # For multi-project repositories, we will add deliveryTarget AppSource if any project has AppSourceContinuousDelivery set to true
-            ('${{ steps.ReadSettings.outputs.ProjectsJson }}' | ConvertFrom-Json) | where-Object { $_ } | ForEach-Object {
-              $projectSettings = Get-Content (Join-Path $_ '.AL-Go/settings.json') -raw | ConvertFrom-Json
-              if ($projectSettings.PSObject.Properties.Name -eq 'AppSourceContinuousDelivery' -and $projectSettings.AppSourceContinuousDelivery) {
-                Write-Host "Project $_ is setup for Continuous Delivery"
-                $continuousDelivery = $true
-              }
-            }
-            if ($continuousDelivery) {
-              $deliveryTargets += @("AppSource")
-            }
-          }
-          $namePrefix = 'DeliverTo'
-          Get-Item -Path (Join-Path $ENV:GITHUB_WORKSPACE ".github/$($namePrefix)*.ps1") | ForEach-Object {
-            $deliveryTarget = [System.IO.Path]::GetFileNameWithoutExtension($_.Name.SubString($namePrefix.Length))
-            $deliveryTargets += @($deliveryTarget)
-          }
-          $deliveryTargets = @($deliveryTargets | Select-Object -unique | Where-Object {
-            $include = $false
-            Write-Host "Check DeliveryTarget $_"
-            $contextName = "$($_)Context"
-            $deliveryContext = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String([System.Environment]::GetEnvironmentVariable($contextName)))
-            if ($deliveryContext) {
-              $settingName = "DeliverTo$_"
-              $settings = $env:Settings | ConvertFrom-Json
-              if (($settings.PSObject.Properties.Name -eq $settingName) -and ($settings."$settingName".PSObject.Properties.Name -eq "Branches")) {
-                Write-Host "Branches:"
-                $settings."$settingName".Branches | ForEach-Object {
-                  Write-Host "- $_"
-                  if ($ENV:GITHUB_REF_NAME -like $_) {
-                    $include = $true
-                  }
-                }
-              }
-              else {
-                $include = ($ENV:GITHUB_REF_NAME -eq 'main')
-              }
-            }
-            if ($include) {
-              Write-Host "DeliveryTarget $_ included"
-            }
-            $include
-          })
-          $deliveryTargetsJson = $deliveryTargets | ConvertTo-Json -Depth 99 -compress
-          if ($deliveryTargets.Count -lt 2) { $deliveryTargetsJson = "[$($deliveryTargetsJson)]" }
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "DeliveryTargetsJson=$deliveryTargetsJson"
-          Write-Host "DeliveryTargetsJson=$deliveryTargetsJson"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "DeliveryTargetCount=$($deliveryTargets.Count)"
-          Write-Host "DeliveryTargetCount=$($deliveryTargets.Count)"
-          Add-Content -Path $env:GITHUB_ENV -Value "DeliveryTargets=$deliveryTargetsJson"
+        uses: aholstrup1/AL-Go-Actions/DetermineDeliveryTargets@main
+        with:
+          shell: powershell
+          projectsJson: ${{ steps.ReadSettings.outputs.ProjectsJson }}
+          settingsJson: ${{ env.Settings }}
+          workspace: ${{ github.workspace }}
+          type: ${{ env.type }}
+          refName: ${{ github.ref }}
 
       - name: Determine Build Order
         if: env.workflowDepth > 1
         id: BuildOrder
-        run: |
-          $ErrorActionPreference = "STOP"
-          Set-StrictMode -version 2.0
-          $projects = '${{ steps.ReadSettings.outputs.ProjectsJson }}' | ConvertFrom-Json
-          $buildOrder = '${{ steps.ReadSettings.outputs.BuildOrderJson }}' | ConvertFrom-Json
-          $depth = ${{ steps.ReadSettings.outputs.BuildOrderDepth }}
-          $workflowDepth = ${{ env.workflowDepth }}
-          if ($depth -lt $workflowDepth) {
-            Write-Host "::Error::Project Dependencies depth is $depth. Workflow is only setup for $workflowDepth. You need to Run Update AL-Go System Files to update the workflows"
-            $host.SetShouldExit(1)
-          }
-          $step = $depth
-          $depth..1 | ForEach-Object {
-            $ps = @($buildOrder."$_" | Where-Object { $projects -contains $_ })
-            if ($ps.Count -eq 1) {
-              $projectsJSon = "[$($ps | ConvertTo-Json -compress)]"
-            }
-            else {
-              $projectsJSon = $ps | ConvertTo-Json -compress
-            }
-            if ($ps.Count -gt 0) {
-              Add-Content -Path $env:GITHUB_OUTPUT -Value "projects$($step)Json=$projectsJson"
-              Add-Content -Path $env:GITHUB_OUTPUT -Value "projects$($step)Count=$($ps.count)"
-              Write-Host "projects$($step)Json=$projectsJson"
-              Write-Host "projects$($step)Count=$($ps.count)"
-              $step--
-            }
-          }
-          while ($step -ge 1) {
-              Add-Content -Path $env:GITHUB_OUTPUT -Value "projects$($step)Json="
-              Add-Content -Path $env:GITHUB_OUTPUT -Value "projects$($step)Count=0"
-              Write-Host "projects$($step)Json="
-              Write-Host "projects$($step)Count=0"
-              $step--
-          }
+        uses: aholstrup1/AL-Go-Actions/DetermineBuildOrder@main
+        with:
+          projects: ${{ steps.ReadSettings.outputs.ProjectsJson }}
+          buildOrder: ${{ steps.ReadSettings.outputs.BuildOrderJson }}
+          buildOrderDepth: ${{ steps.ReadSettings.outputs.BuildOrderDepth }}
+          workflowDepth: ${{ env.workflowDepth }}
+          outputPath: ${{ env.GITHUB_OUTPUT }}
 
   CheckForUpdates:
     runs-on: [ windows-latest ]
@@ -189,7 +113,7 @@ jobs:
           get: templateUrl
 
       - name: Check for updates to AL-Go system files
-        uses: microsoft/AL-Go-Actions/CheckForUpdates@v2.3
+        uses: aholstrup1/AL-Go-Actions/CheckForUpdates@main
         with:
           shell: powershell
           parentTelemetryScopeJson: ${{ needs.Initialization.outputs.telemetryScopeJson }}
@@ -234,7 +158,7 @@ jobs:
           project: ${{ matrix.project }}
 
       - name: Read secrets
-        uses: microsoft/AL-Go-Actions/ReadSecrets@v2.3
+        uses: aholstrup1/AL-Go-Actions/ReadSecrets@main
         env:
           secrets: ${{ toJson(secrets) }}
         with:
@@ -245,7 +169,7 @@ jobs:
 
       - name: Run pipeline
         id: RunPipeline
-        uses: microsoft/AL-Go-Actions/RunPipeline@v2.3
+        uses: aholstrup1/AL-Go-Actions/RunPipeline@main
         env:
           BuildMode: ${{ matrix.buildMode }}
         with:
@@ -258,32 +182,14 @@ jobs:
           buildMode: ${{ matrix.buildMode }}
 
       - name: Calculate Artifact names
-        id: calculateArtifactNames
+        uses: aholstrup1/AL-Go-Actions/CalculateArtifactNames@main
         if: success() || failure()
-        run: |
-          $ErrorActionPreference = "STOP"
-          Set-StrictMode -version 2.0
-          $settings = '${{ env.Settings }}' | ConvertFrom-Json
-          $project = '${{ matrix.project }}'
-          $buildMode = '${{ matrix.buildMode }}'
-          if ("$ENV:GITHUB_EVENT_NAME" -eq 'workflow_run') {
-            $eventStr = Get-Content $ENV:GITHUB_EVENT_PATH -Encoding UTF8
-            $event = $eventStr | ConvertFrom-Json
-            $ref = "PR$($event.workflow_run.id)"
-          }
-          else {
-            $ref = "$ENV:GITHUB_REF_NAME".Replace('/','_')
-          }
-          if ($project -eq ".") { $project = $settings.repoName }
-          if ($buildMode -eq 'Default') { $buildMode = '' }
-          'Apps','Dependencies','TestApps','TestResults','BcptTestResults','BuildOutput','ContainerEventLog' | ForEach-Object {
-            $name = "$($_)ArtifactsName"
-            $value = "$($project.Replace('\','_').Replace('/','_'))-$($ref)-$buildMode$_-$($settings.repoVersion).$($settings.appBuild).$($settings.appRevision)"
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "$name=$value"
-            Add-Content -Path $env:GITHUB_ENV -Value "$name=$value"
-          }
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "BuildMode=$buildMode"
-          Add-Content -Path $env:GITHUB_ENV -Value "BuildMode=$buildMode"
+        with:
+          shell: ${{ needs.Initialization.outputs.githubRunnerShell }}
+          settingsJson: ${{ env.Settings }}
+          project: ${{ matrix.project }}
+          buildMode: ${{ matrix.buildMode }}
+          refName: ${{ github.ref_name }}
 
       - name: Upload thisbuild artifacts - apps
         if: env.workflowDepth > 1
@@ -362,7 +268,7 @@ jobs:
       - name: Analyze Test Results
         id: analyzeTestResults
         if: success() || failure()
-        uses: microsoft/AL-Go-Actions/AnalyzeTests@v2.3
+        uses: aholstrup1/AL-Go-Actions/AnalyzeTests@main
         with:
           shell: ${{ needs.Initialization.outputs.githubRunnerShell }}
           parentTelemetryScopeJson: ${{ needs.Initialization.outputs.telemetryScopeJson }}
@@ -370,7 +276,7 @@ jobs:
 
       - name: Cleanup
         if: always()
-        uses: microsoft/AL-Go-Actions/PipelineCleanup@v2.3
+        uses: aholstrup1/AL-Go-Actions/PipelineCleanup@main
         with:
           shell: ${{ needs.Initialization.outputs.githubRunnerShell }}
           parentTelemetryScopeJson: ${{ needs.Initialization.outputs.telemetryScopeJson }}
@@ -407,7 +313,7 @@ jobs:
           shell: powershell
 
       - name: Read secrets
-        uses: microsoft/AL-Go-Actions/ReadSecrets@v2.3
+        uses: aholstrup1/AL-Go-Actions/ReadSecrets@main
         env:
           secrets: ${{ toJson(secrets) }}
         with:
@@ -490,7 +396,7 @@ jobs:
           Write-Host "projects=$projects"
 
       - name: Deploy
-        uses: microsoft/AL-Go-Actions/Deploy@v2.3
+        uses: aholstrup1/AL-Go-Actions/Deploy@main
         env:
           AuthContext: ${{ steps.authContext.outputs.authContext }}
         with:
@@ -524,7 +430,7 @@ jobs:
           shell: powershell
 
       - name: Read secrets
-        uses: microsoft/AL-Go-Actions/ReadSecrets@v2.3
+        uses: aholstrup1/AL-Go-Actions/ReadSecrets@main
         env:
           secrets: ${{ toJson(secrets) }}
         with:
@@ -543,7 +449,7 @@ jobs:
           Write-Host "deliveryContext=$deliveryContext"
 
       - name: Deliver
-        uses: microsoft/AL-Go-Actions/Deliver@v2.3
+        uses: aholstrup1/AL-Go-Actions/Deliver@main
         env:
           deliveryContext: ${{ steps.deliveryContext.outputs.deliveryContext }}
         with:
@@ -562,7 +468,7 @@ jobs:
 
       - name: Finalize the workflow
         id: PostProcess
-        uses: microsoft/AL-Go-Actions/WorkflowPostProcess@v2.3
+        uses: aholstrup1/AL-Go-Actions/WorkflowPostProcess@main
         with:
           shell: powershell
           eventId: "DO0091"
