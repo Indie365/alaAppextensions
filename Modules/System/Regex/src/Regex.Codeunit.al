@@ -27,8 +27,9 @@ codeunit 3960 Regex
     /// </summary>
     /// <param name="Pattern">A regular expression pattern to match.</param>
     /// <param name="RegexOptions">A combination of the enumeration values that modify the regular expression.</param>
-    procedure Regex(PatternRegex: Text; var RegexOptions: Record "Regex Options")
+    procedure Regex(Pattern: Text; var RegexOptions: Record "Regex Options"; SomeParameter: Text)
     begin
+        Message('SomeParameter: ' + SomeParameter);
         RegexImpl.Regex(Pattern, RegexOptions);
     end;
 
