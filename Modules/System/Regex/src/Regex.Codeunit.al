@@ -27,9 +27,8 @@ codeunit 3960 Regex
     /// </summary>
     /// <param name="Pattern">A regular expression pattern to match.</param>
     /// <param name="RegexOptions">A combination of the enumeration values that modify the regular expression.</param>
-    procedure Regex(Pattern: Text; var RegexOptions: Record "Regex Options"; SomeParameter: Text)
+    procedure Regex(Pattern: Text; var RegexOptions: Record "Regex Options")
     begin
-        Message('SomeParameter: ' + SomeParameter);
         RegexImpl.Regex(Pattern, RegexOptions);
     end;
 
@@ -37,8 +36,9 @@ codeunit 3960 Regex
     /// Gets the maximum number of entries in the current static cache of compiled regular expressions.
     /// </summary>
     /// <returns>The maximum number of entries in the static cache.</returns>
-    procedure GetCacheSize(): Integer
+    procedure GetCacheSize(SomeParameter: Text): Integer
     begin
+        Message('SomeParameter: ' + SomeParameter);
         exit(RegexImpl.GetCacheSize());
     end;
 
